@@ -73,7 +73,7 @@ contract Escrow {
     }
 
     //? Approve the Sale
-    function approve(uint256 _nftID) public { //? this function is used to approve the sale transaction
+    function approveSale(uint256 _nftID) public { //? this function is used to approve the sale transaction
         approval[_nftID][msg.sender] = true;
     }
 

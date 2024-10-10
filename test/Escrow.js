@@ -129,13 +129,13 @@ describe("Escrow", () => {
 
 	describe("Approval", () => {
 		it("Updates as Approved", async () => {
-			let transaction = await escrow.connect(buyer).approve(1); //? approving the property as buyer
+			let transaction = await escrow.connect(buyer).approveSale(1); //? approving the property as buyer
 			await transaction.wait();
 
-			transaction = await escrow.connect(seller).approve(1); //? approving the property as seller
+			transaction = await escrow.connect(seller).approveSale(1); //? approving the property as seller
 			await transaction.wait();
 
-			transaction = await escrow.connect(lender).approve(1); //? approving the property as lender
+			transaction = await escrow.connect(lender).approveSale(1); //? approving the property as lender
 			await transaction.wait();
 
 			expect(await escrow.approval(1, buyer.address)).to.be.equal(true);
@@ -156,13 +156,13 @@ describe("Escrow", () => {
 				.updateInspectionStatus(1, true);
 			await transaction.wait();
 
-			transaction = await escrow.connect(buyer).approve(1);
+			transaction = await escrow.connect(buyer).approveSale(1);
 			await transaction.wait();
 
-			transaction = await escrow.connect(seller).approve(1);
+			transaction = await escrow.connect(seller).approveSale(1);
 			await transaction.wait();
 
-			transaction = await escrow.connect(lender).approve(1);
+			transaction = await escrow.connect(lender).approveSale(1);
 			await transaction.wait();
 
 			await lender.sendTransaction({
