@@ -118,7 +118,10 @@ const Home = ({ home, provider, account, escrowContract, togglePop }) => {
 				.depositEarnest(home.id)
 				.send({
 					from: account,
-					value: escrowAmount.toString(),
+					value: provider.utils.toWei(
+						escrowAmount.toString(),
+						"ether"
+					),
 					gas: gasEstimateEarnest || 3000000, // Set a manual gas limit if needed
 				});
 			console.log("Earnest deposit transaction: ", transaction);

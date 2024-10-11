@@ -26,6 +26,8 @@ export const connectWallet = async ({
 				throw new Error("No accounts found");
 			}
 
+			console.log("Connected account: ", accounts[0]);
+
 			// Set the initial account
 			setAccount(accounts[0]);
 			setWeb3Provider(web3); // Set the Web3 provider

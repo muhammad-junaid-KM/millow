@@ -1,39 +1,23 @@
-//SPDX-License-Identifier: Unlicense
+// SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.0;
 
-interface IERC721 { //? skelton for the smart contract that tells the type of functions inside of it
-    function transferFrom(
-        address _from,
-        address _to,
-        uint256 _id
-    ) external;
-}
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
-contract Escrow {
-    address public lender; //? address is the datatype for ethereum addresses, public makes it accessible from outside the contract, lender is the state variable name that stores the lender's address into the contract on the blockchain
+contract Escrow is IERC721Receiver {
+    address public lender;
     address public inspector;
-    address payable public seller; //? payable is a modifier that allows the contract to receive and hold ether or cryptocurrency
-    address public nftAddress; //? nftAddress is the state variable that stores the address of the NFT contract
+    address payable public seller;
+    address public nftAddress;
 
-    modifier onlySeller() { //? modifier is a special type of function that is used to modify the behavior of other functions in the contract by adding some additional functionality to them
-        require(msg.sender == seller, "Only seller can call this function");
-        _;
-    }
-    modifier onlyBuyer(uint256 _nftID) { //? onlyBuyer is a modifier that allows only the buyer to call this function
-        require(msg.sender == buyer[_nftID], "Only buyer can call this function");
-        _;
-    }
-    modifier onlyInspector() { //? onlyInspector is a modifier that allows only the inspector to call this function
-        require(msg.sender == inspector, "Only inspector can call this function");
-        _;
-    }
+    bool private locked;
 
-    mapping(uint256 => bool) public isListed; //? mapping is a key-value pair data structure, uint256 is the key and bool is the value, isListed is the state variable that stores the status of the NFT
-    mapping(uint256 => uint256) public purchasePrice; //? purchasePrice is the state variable that stores the purchase price of the NFT
-    mapping(uint256 => uint256) public escrowAmount; //? escrowAmount is the state variable that stores the amount of money in escrow
-    mapping(uint256 => address) public buyer; //? buyer is the state variable that stores the address of the buyer
-    mapping(uint256 => bool) public inspectionPassed; //? inspectionPassed is the state variable that stores the status of the inspection
-    mapping(uint256 => mapping(address => bool)) public approval; //? approval is the nested state variable that stores the address of the person who approved the transaction and the status of the approval
+    mapping(uint256 => bool) public isListed;
+    mapping(uint256 => uint256) public purchasePrice;
+    mapping(uint256 => uint256) public escrowAmount;
+    mapping(uint256 => address) public buyer;
+    mapping(uint256 => bool) public inspectionPassed;
+    mapping(uint256 => mapping(address => bool)) public approval;
 
     constructor(
         address _nftAddress,
@@ -47,70 +31,96 @@ contract Escrow {
         nftAddress = _nftAddress;
     }
 
+    // Implement the onERC721Received function to allow receiving NFTs
+    function onERC721Received(
+        address operator,
+        address from,
+        uint256 tokenId,
+        bytes calldata data
+    ) external pure override returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+
+    modifier onlyBuyer(uint256 _nftID) {
+        require(msg.sender == buyer[_nftID], "Only the buyer can call this function");
+        _;
+    }
+
+    modifier onlyInspector() {
+        require(msg.sender == inspector, "Only the inspector can call this function");
+        _;
+    }
+
+    modifier noReentrancy() {
+        require(!locked, "Reentrant call");
+        locked = true;
+        _;
+        locked = false;
+    }
+
     function list(
         uint256 _nftID,
         address _buyer,
         uint256 _purchasePrice,
         uint256 _escrowAmount
-    ) public payable onlySeller { //? payable is a modifier that allows the contract to receive and hold ether or cryptocurrency and onlySeller is a modifier that allows only the seller to call this function and this whole function is used to list the NFT for sale
-        IERC721(nftAddress).transferFrom(msg.sender, address(this), _nftID); //? transferFrom is a function that transfers the NFT from the user's wallet to the escrow contract
+    ) public payable {
+        IERC721(nftAddress).safeTransferFrom(msg.sender, address(this), _nftID);
 
-        isListed[_nftID] = true; //? set the status of the NFT to true
-        purchasePrice[_nftID] = _purchasePrice; //? set the purchase price of the NFT
-        escrowAmount[_nftID] = _escrowAmount; //? set the amount of money in escrow
-        buyer[_nftID] = _buyer; //? set the address of the buyer
+        isListed[_nftID] = true;
+        purchasePrice[_nftID] = _purchasePrice;
+        escrowAmount[_nftID] = _escrowAmount;
+        buyer[_nftID] = _buyer;
     }
 
-    //? Put the property under contract (only buyer - payable escrow)
-    function depositEarnest(uint256 _nftID) public payable onlyBuyer(_nftID) { //? onlyBuyer is a modifier that allows only the buyer to call this function and this whole function is used to deposit the earnest money into the escrow
+    function depositEarnest(uint256 _nftID) public payable onlyBuyer(_nftID) {
         require(isListed[_nftID], "NFT is not listed for sale");
-        require(msg.value >= escrowAmount[_nftID], "Insufficient escrow amount");	//? require is a function that checks the condition and if the condition is false then it throws an error and stops the execution of the function
+        require(msg.value >= escrowAmount[_nftID], "Insufficient escrow amount");
     }
 
-    //? Update the Inspection status (only inspector)
-    function updateInspectionStatus(uint256 _nftID, bool _inspectionPassed) public onlyInspector { //? this function is used to update the inspection status of the NFT
+    function updateInspectionStatus(uint256 _nftID, bool _inspectionPassed) public onlyInspector {
         inspectionPassed[_nftID] = _inspectionPassed;
     }
 
-    //? Approve the Sale
-    function approveSale(uint256 _nftID) public { //? this function is used to approve the sale transaction
+    function approveSale(uint256 _nftID) public {
         approval[_nftID][msg.sender] = true;
     }
 
-    function getBalance() public view returns (uint256) { //? getBalance is a function that returns the balance of the contract
+    function getBalance() public view returns (uint256) {
         return address(this).balance;
     }
 
-    receive() external payable {} //? receive is a function that is called when the contract receives ether or cryptocurrency
+    receive() external payable {}
 
-    //? Finalize the Sale
-    //: - Require inspection status (add more items here, like appraisal)
-    //: - Require sale to be authorized
-    //: - Require funds to be of correct amount
-    //: - Transfer NFT to buyer
-    //: - Transfer funds to seller
-    function finalizeSale(uint256 _nftID) public {
-        require(inspectionPassed[_nftID]);
-        require(approval[_nftID][buyer[_nftID]]);
-        require(approval[_nftID][seller]);
-        require(approval[_nftID][lender]);
-        require(address(this).balance >= purchasePrice[_nftID]);
+    function finalizeSale(uint256 _nftID) public noReentrancy {
+        require(inspectionPassed[_nftID], "Inspection has not passed");
+        require(approval[_nftID][buyer[_nftID]], "Buyer has not approved the sale");
+        require(approval[_nftID][seller], "Seller has not approved the sale");
+        require(approval[_nftID][lender], "Lender has not approved the sale");
+        require(address(this).balance >= purchasePrice[_nftID], "Insufficient funds for this NFT");
 
-        isListed[_nftID] = false; //? set the status of the NFT to false
+        isListed[_nftID] = false;
 
-        (bool success, ) = payable(seller).call{value: address(this).balance}(""); //? call is a function that calls the seller's address and transfers the funds to the seller
-        require(success, "Transfer failed.");
+        // Transfer the purchase price to the seller
+        (bool success, ) = seller.call{value: purchasePrice[_nftID]}("");
+        require(success, "Transfer to seller failed.");
 
-        IERC721(nftAddress).transferFrom(address(this), buyer[_nftID], _nftID); //? transferFrom is a function that transfers the NFT from the escrow contract to the buyer's wallet
+        // Transfer the NFT to the buyer
+        IERC721(nftAddress).safeTransferFrom(address(this), buyer[_nftID], _nftID);
     }
 
-    //? Cancel the Sale
-    //: - If the inspection fails, then refund the buyer, otherwise send to seller
-    function cancelSale(uint256 _nftID) public {
-        if (inspectionPassed[_nftID] == false) {
-            payable(buyer[_nftID]).transfer(address(this).balance); //? transfer is a function that transfers the funds from the escrow contract to the buyer's wallet
+    function cancelSale(uint256 _nftID) public noReentrancy {
+        require(isListed[_nftID], "NFT is not listed for sale");
+
+        isListed[_nftID] = false;
+
+        if (!inspectionPassed[_nftID]) {
+            // Refund the buyer if the inspection failed
+            (bool success, ) = buyer[_nftID].call{value: escrowAmount[_nftID]}("");
+            require(success, "Refund to buyer failed.");
         } else {
-            payable(seller).transfer(address(this).balance); //? transfer is a function that transfers the funds from the escrow contract to the seller's wallet
+            // Refund the seller if the inspection passed
+            (bool success, ) = seller.call{value: escrowAmount[_nftID]}("");
+            require(success, "Refund to seller failed.");
         }
     }
 }

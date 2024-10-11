@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { loadBlockchainData } from "./blockchain";
 
 // Components
 import Navigation from "./components/Navigation";
