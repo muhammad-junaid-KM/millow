@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
+import BigNumber from "bignumber.js";
 
 import close from "../assets/close.svg";
 
@@ -105,49 +106,53 @@ const Home = ({ home, provider, account, escrowContract, togglePop }) => {
 			const escrowAmount = await escrowContract.methods
 				.escrowAmount(home.id)
 				.call();
-			console.log("escrowAmount: ", escrowAmount.toString());
+			console.log("escrowAmount (in wei): ", escrowAmount.toString());
 
 			// Estimate gas for depositing earnest money
 			const gasEstimateEarnest = await escrowContract.methods
 				.depositEarnest(home.id)
-				.estimateGas({ from: account, value: escrowAmount.toString() });
+				.estimateGas({ from: account, value: escrowAmount });
 			console.log("gasEstimateEarnest: ", gasEstimateEarnest);
 
 			// Perform the transaction for depositing earnest money
-			let transaction = await escrowContract.methods
+			const earnestTransaction = await escrowContract.methods
 				.depositEarnest(home.id)
 				.send({
 					from: account,
-					value: provider.utils.toWei(
-						escrowAmount.toString(),
-						"ether"
-					),
+					value: escrowAmount, // Ensure value is sent in wei
 					gas: gasEstimateEarnest || 3000000, // Set a manual gas limit if needed
 				});
-			console.log("Earnest deposit transaction: ", transaction);
+			console.log("Earnest deposit transaction: ", earnestTransaction);
 
-			// Estimate gas for approving the sale
-			const gasEstimateApprove = await escrowContract.methods
-				.approveSale(home.id)
-				.estimateGas({ from: account });
-			console.log("gasEstimateApprove: ", gasEstimateApprove);
+			// Ensure earnest deposit transaction was successful before proceeding
+			if (earnestTransaction) {
+				// Estimate gas for approving the sale
+				const gasEstimateApprove = await escrowContract.methods
+					.approveSale(home.id)
+					.estimateGas({ from: account });
+				console.log("gasEstimateApprove: ", gasEstimateApprove);
 
-			// Approve the sale
-			transaction = await escrowContract.methods
-				.approveSale(home.id)
-				.send({
-					from: account,
-					gas: gasEstimateApprove || 3000000, // Set a manual gas limit if needed
-				});
-			console.log("Approve sale transaction: ", transaction);
+				// Approve the sale
+				const approveTransaction = await escrowContract.methods
+					.approveSale(home.id)
+					.send({
+						from: account,
+						gas: gasEstimateApprove || 3000000, // Set a manual gas limit if needed
+					});
+				console.log("Approve sale transaction: ", approveTransaction);
 
-			// Optional: Refresh wallet balance after transaction
-			const newBalance = await provider.eth.getBalance(account);
-			console.log("New balance: ", newBalance);
+				// Optional: Refresh wallet balance after transaction
+				const newBalance = await provider.eth.getBalance(account);
+				console.log("New balance: ", newBalance);
 
-			// Display success message
-			toast.success("Successfully bought the property!");
-			setHasBought(true);
+				// Display success message
+				toast.success("Successfully bought the property!");
+				setHasBought(true);
+			} else {
+				toast.error(
+					"Failed to deposit earnest money. Transaction aborted."
+				);
+			}
 		} catch (error) {
 			// Detailed error handling
 			if (error.code === 4001) {
@@ -162,9 +167,10 @@ const Home = ({ home, provider, account, escrowContract, togglePop }) => {
 
 	const inspectHandler = async () => {
 		try {
+			// Log the connected account
 			console.log("account: ", account);
 
-			// Fetch the inspector address
+			// Fetch the inspector address from the contract
 			const inspector = await escrowContract.methods.inspector().call();
 			console.log("inspector: ", inspector);
 
@@ -180,68 +186,80 @@ const Home = ({ home, provider, account, escrowContract, togglePop }) => {
 				.estimateGas({ from: account });
 			console.log("gasEstimate: ", gasEstimate);
 
-			// Approve the inspection
-			const transaction = await escrowContract.methods
+			// Approve the inspection if the gas estimate succeeds
+			const inspectionTransaction = await escrowContract.methods
 				.updateInspectionStatus(home.id, true)
 				.send({ from: account, gas: gasEstimate });
-			console.log("transaction: ", transaction);
+			console.log("Inspection transaction: ", inspectionTransaction);
 
-			await transaction;
-
-			toast.success("Inspection approved successfully!");
-			setHasInspected(true);
+			// Ensure transaction was successful before proceeding
+			if (inspectionTransaction) {
+				toast.success("Inspection approved successfully!");
+				setHasInspected(true);
+			} else {
+				toast.error("Inspection approval failed. Please try again.");
+			}
 		} catch (error) {
 			toast.error("Failed to approve inspection.");
-			console.error(error);
+			console.error("Error during inspection approval: ", error);
 		}
 	};
 
 	const lendHandler = async () => {
 		try {
-			// Estimate gas for approving the sale as the lender
-			const gasEstimateApprove = await escrowContract.methods
-				.approveSale(home.id)
-				.estimateGas({ from: account });
-			console.log("gasEstimateApprove: ", gasEstimateApprove);
-
-			// Approve the sale as the lender
-			let transaction = await escrowContract.methods
-				.approveSale(home.id)
-				.send({ from: account, gas: gasEstimateApprove });
-			console.log("transaction: ", transaction);
-
-			await transaction;
-
 			// Get the total purchase price and the escrow amount for the home
 			const purchasePrice = await escrowContract.methods
 				.purchasePrice(home.id)
 				.call();
-			console.log("purchasePrice: ", purchasePrice);
+			console.log("purchasePrice (in wei): ", purchasePrice.toString());
+
 			const escrowAmount = await escrowContract.methods
 				.escrowAmount(home.id)
 				.call();
-			console.log("escrowAmount: ", escrowAmount);
-			const lendAmount = purchasePrice - escrowAmount;
-			console.log("lendAmount: ", lendAmount);
+			console.log("escrowAmount (in wei): ", escrowAmount.toString());
+
+			// Use BigNumber to subtract large values safely
+			const lendAmount = new BigNumber(purchasePrice).minus(
+				new BigNumber(escrowAmount)
+			);
+			console.log("lendAmount (in wei): ", lendAmount.toString());
 
 			// Estimate gas for sending funds
 			const gasEstimateSendFunds = await provider.eth.estimateGas({
 				to: escrowContract.options.address,
 				from: account,
-				value: lendAmount.toString(),
+				value: lendAmount.toString(), // Ensure this is in wei
 			});
 			console.log("gasEstimateSendFunds: ", gasEstimateSendFunds);
 
 			// Send the loan funds
-			await provider.eth.sendTransaction({
+			const sendFundsTransaction = await provider.eth.sendTransaction({
 				from: account,
 				to: escrowContract.options.address,
-				value: lendAmount.toString(),
-				gas: gasEstimateSendFunds,
+				value: lendAmount.toString(), // Ensure value is in wei
+				gas: gasEstimateSendFunds || 3000000, // Set a higher gas limit if needed
 			});
+			console.log("sendFundsTransaction: ", sendFundsTransaction);
 
-			toast.success("Successfully lent funds!");
-			setHasLended(true);
+			// If sending funds is successful, proceed to approve the sale
+			if (sendFundsTransaction) {
+				// Estimate gas for approving the sale as the lender
+				const gasEstimateApprove = await escrowContract.methods
+					.approveSale(home.id)
+					.estimateGas({ from: account });
+				console.log("gasEstimateApprove: ", gasEstimateApprove);
+
+				// Approve the sale as the lender
+				const approveTransaction = await escrowContract.methods
+					.approveSale(home.id)
+					.send({ from: account, gas: gasEstimateApprove });
+				console.log("approveTransaction: ", approveTransaction);
+
+				toast.success("Successfully lent funds and approved the sale!");
+				setHasLended(true);
+			} else {
+				toast.error("Sending funds failed. Sale not approved.");
+			}
 		} catch (error) {
 			toast.error("Lending failed. Please try again.");
 			console.error(error);
@@ -257,32 +275,36 @@ const Home = ({ home, provider, account, escrowContract, togglePop }) => {
 			console.log("gasEstimateApprove: ", gasEstimateApprove);
 
 			// Approve the sale as the seller
-			let transaction = await escrowContract.methods
+			const approveTransaction = await escrowContract.methods
 				.approveSale(home.id)
 				.send({ from: account, gas: gasEstimateApprove });
-			console.log("transaction: ", transaction);
+			console.log("Approve sale transaction: ", approveTransaction);
 
-			await transaction;
+			// Ensure approve transaction was successful before finalizing the sale
+			if (approveTransaction) {
+				// Estimate gas for finalizing the sale
+				const gasEstimateFinalize = await escrowContract.methods
+					.finalizeSale(home.id)
+					.estimateGas({ from: account });
+				console.log("gasEstimateFinalize: ", gasEstimateFinalize);
 
-			// Estimate gas for finalizing the sale
-			const gasEstimateFinalize = await escrowContract.methods
-				.finalizeSale(home.id)
-				.estimateGas({ from: account });
-			console.log("gasEstimateFinalize: ", gasEstimateFinalize);
+				// Finalize the sale
+				const finalizeTransaction = await escrowContract.methods
+					.finalizeSale(home.id)
+					.send({ from: account, gas: gasEstimateFinalize });
+				console.log("Finalize sale transaction: ", finalizeTransaction);
 
-			// Finalize the sale
-			transaction = await escrowContract.methods
-				.finalizeSale(home.id)
-				.send({ from: account, gas: gasEstimateFinalize });
-			console.log("transaction: ", transaction);
-
-			await transaction;
-
-			toast.success("Successfully sold the property!");
-			setHasSold(true);
+				// If finalize transaction is successful
+				if (finalizeTransaction) {
+					toast.success("Successfully sold the property!");
+					setHasSold(true);
+				}
+			} else {
+				toast.error("Failed to approve the sale. Transaction aborted.");
+			}
 		} catch (error) {
 			toast.error("Selling failed. Please try again.");
-			console.error(error);
+			console.error("Error during transaction: ", error);
 		}
 	};
 
