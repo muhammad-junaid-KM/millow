@@ -5,7 +5,7 @@
 - Solidity (Writing Smart Contracts & Tests)
 - Javascript (React & Testing)
 - [Hardhat](https://hardhat.org/) (Development Framework)
-- [Ethers.js](https://docs.ethers.io/v5/) (Blockchain Interaction)
+- [Web3.js]([https://docs.ethers.io/v5/](https://web3js.readthedocs.io/en/v1.5.2/web3.html)) (Blockchain Interaction)
 - [React.js](https://reactjs.org/) (Frontend Framework)
 
 ## Requirements For Initial Setup
