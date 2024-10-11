@@ -3,7 +3,7 @@ import { toast } from "react-toastify";
 
 import close from "../assets/close.svg";
 
-const Home = ({ home, provider, account, escrow, togglePop }) => {
+const Home = ({ home, provider, account, escrowContract, togglePop }) => {
 	const [hasBought, setHasBought] = useState(false);
 	const [hasLended, setHasLended] = useState(false);
 	const [hasInspected, setHasInspected] = useState(false);
@@ -18,29 +18,54 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 
 	const fetchDetails = async () => {
 		try {
-			const buyer = await escrow.buyer(home.id);
+			console.log("account: ", account);
+			// Fetch buyer address for the specific home
+			const buyer = await escrowContract.methods.buyer(home.id).call();
 			setBuyer(buyer);
+			console.log("buyer: ", buyer);
 
-			const hasBought = await escrow.approval(home.id, buyer);
+			// Check if buyer has approved the sale
+			const hasBought = await escrowContract.methods
+				.approval(home.id, buyer)
+				.call();
 			setHasBought(hasBought);
+			console.log("hasBought: ", hasBought);
 
-			const seller = await escrow.seller();
+			// Fetch seller address (constant for all homes)
+			const seller = await escrowContract.methods.seller().call();
 			setSeller(seller);
+			console.log("seller: ", seller);
 
-			const hasSold = await escrow.approval(home.id, seller);
+			// Check if seller has approved the sale
+			const hasSold = await escrowContract.methods
+				.approval(home.id, seller)
+				.call();
 			setHasSold(hasSold);
+			console.log("hasSold: ", hasSold);
 
-			const lender = await escrow.lender();
+			// Fetch lender address (constant for all homes)
+			const lender = await escrowContract.methods.lender().call();
 			setLender(lender);
+			console.log("lender: ", lender);
 
-			const hasLended = await escrow.approval(home.id, lender);
+			// Check if lender has approved the sale
+			const hasLended = await escrowContract.methods
+				.approval(home.id, lender)
+				.call();
 			setHasLended(hasLended);
+			console.log("hasLended: ", hasLended);
 
-			const inspector = await escrow.inspector();
+			// Fetch inspector address (constant for all homes)
+			const inspector = await escrowContract.methods.inspector().call();
 			setInspector(inspector);
+			console.log("inspector: ", inspector);
 
-			const hasInspected = await escrow.inspectionPassed(home.id);
+			// Check if the inspection has passed for the given home ID
+			const hasInspected = await escrowContract.methods
+				.inspectionPassed(home.id)
+				.call();
 			setHasInspected(hasInspected);
+			console.log("hasInspected: ", hasInspected);
 		} catch (error) {
 			toast.error("Failed to load details.");
 			console.error(error);
@@ -49,9 +74,18 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 
 	const fetchOwner = async () => {
 		try {
-			if (await escrow.isListed(home.id)) return;
+			// Check if the home is listed
+			const isListed = await escrowContract.methods
+				.isListed(home.id)
+				.call();
+			console.log("isListed: ", isListed);
 
-			const owner = await escrow.buyer(home.id);
+			// If the home is still listed, return early (no owner yet)
+			if (isListed) return;
+
+			// Fetch the buyer (who becomes the owner after purchase)
+			const owner = await escrowContract.methods.buyer(home.id).call();
+			console.log("owner: ", owner);
 			setOwner(owner);
 		} catch (error) {
 			toast.error("Failed to fetch owner details.");
@@ -61,63 +95,95 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 
 	const buyHandler = async () => {
 		try {
-			const escrowAmount = await escrow.escrowAmount(home.id);
-			const signer = await provider.getSigner();
+			// Ensure account and web3 are available (wallet is connected)
+			if (!account || !provider) {
+				toast.error("Wallet not connected.");
+				return;
+			}
 
-			const gasEstimateEarnest = await escrow.estimateGas.depositEarnest(
-				home.id,
-				{ value: escrowAmount }
-			);
+			// Get the escrow amount required for the home
+			const escrowAmount = await escrowContract.methods
+				.escrowAmount(home.id)
+				.call();
+			console.log("escrowAmount: ", escrowAmount.toString());
 
-			let transaction = await escrow
-				.connect(signer)
-				.depositEarnest(home.id, {
-					value: escrowAmount,
-					gasLimit: gasEstimateEarnest,
+			// Estimate gas for depositing earnest money
+			const gasEstimateEarnest = await escrowContract.methods
+				.depositEarnest(home.id)
+				.estimateGas({ from: account, value: escrowAmount.toString() });
+			console.log("gasEstimateEarnest: ", gasEstimateEarnest);
+
+			// Perform the transaction for depositing earnest money
+			let transaction = await escrowContract.methods
+				.depositEarnest(home.id)
+				.send({
+					from: account,
+					value: escrowAmount.toString(),
+					gas: gasEstimateEarnest || 3000000, // Set a manual gas limit if needed
 				});
-			await transaction.wait();
+			console.log("Earnest deposit transaction: ", transaction);
 
-			const gasEstimateApprove = await escrow.estimateGas.approveSale(
-				home.id
-			);
+			// Estimate gas for approving the sale
+			const gasEstimateApprove = await escrowContract.methods
+				.approveSale(home.id)
+				.estimateGas({ from: account });
+			console.log("gasEstimateApprove: ", gasEstimateApprove);
 
-			transaction = await escrow
-				.connect(signer)
-				.approveSale(home.id, { gasLimit: gasEstimateApprove });
-			await transaction.wait();
+			// Approve the sale
+			transaction = await escrowContract.methods
+				.approveSale(home.id)
+				.send({
+					from: account,
+					gas: gasEstimateApprove || 3000000, // Set a manual gas limit if needed
+				});
+			console.log("Approve sale transaction: ", transaction);
 
+			// Optional: Refresh wallet balance after transaction
+			const newBalance = await provider.eth.getBalance(account);
+			console.log("New balance: ", newBalance);
+
+			// Display success message
 			toast.success("Successfully bought the property!");
 			setHasBought(true);
 		} catch (error) {
-			toast.error("Buying failed. Please try again.");
-			console.error(error);
+			// Detailed error handling
+			if (error.code === 4001) {
+				// User rejected the transaction
+				toast.error("Transaction rejected by the user.");
+			} else {
+				toast.error("Buying failed. Please try again.");
+			}
+			console.error("Error during transaction: ", error);
 		}
 	};
 
 	const inspectHandler = async () => {
 		try {
-			const signer = await provider.getSigner();
+			console.log("account: ", account);
 
-			const account = await signer.getAddress(); // Fetch the account being used
+			// Fetch the inspector address
+			const inspector = await escrowContract.methods.inspector().call();
+			console.log("inspector: ", inspector);
 
-			const inspector = await escrow.inspector(); // Fetch the inspector from the contract
-
-			if (account !== inspector) {
+			// Check if the connected account is the inspector
+			if (account.toLowerCase() !== inspector.toLowerCase()) {
 				toast.error("Only the inspector can approve the inspection.");
-				return; // Prevent the transaction from being sent
+				return;
 			}
 
-			const gasEstimate = await escrow.estimateGas.updateInspectionStatus(
-				home.id,
-				true
-			);
+			// Estimate gas for updating inspection status
+			const gasEstimate = await escrowContract.methods
+				.updateInspectionStatus(home.id, true)
+				.estimateGas({ from: account });
+			console.log("gasEstimate: ", gasEstimate);
 
-			let transaction = await escrow
-				.connect(signer)
-				.updateInspectionStatus(home.id, true, {
-					gasLimit: gasEstimate,
-				});
-			await transaction.wait();
+			// Approve the inspection
+			const transaction = await escrowContract.methods
+				.updateInspectionStatus(home.id, true)
+				.send({ from: account, gas: gasEstimate });
+			console.log("transaction: ", transaction);
+
+			await transaction;
 
 			toast.success("Inspection approved successfully!");
 			setHasInspected(true);
@@ -129,28 +195,46 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 
 	const lendHandler = async () => {
 		try {
-			const signer = await provider.getSigner();
-			const gasEstimateApprove = await escrow.estimateGas.approveSale(
-				home.id
-			);
+			// Estimate gas for approving the sale as the lender
+			const gasEstimateApprove = await escrowContract.methods
+				.approveSale(home.id)
+				.estimateGas({ from: account });
+			console.log("gasEstimateApprove: ", gasEstimateApprove);
 
-			let transaction = await escrow
-				.connect(signer)
-				.approveSale(home.id, { gasLimit: gasEstimateApprove });
-			await transaction.wait();
+			// Approve the sale as the lender
+			let transaction = await escrowContract.methods
+				.approveSale(home.id)
+				.send({ from: account, gas: gasEstimateApprove });
+			console.log("transaction: ", transaction);
 
-			const lendAmount =
-				(await escrow.purchasePrice(home.id)) -
-				(await escrow.escrowAmount(home.id));
-			const gasEstimateSendFunds = await provider.estimateGas({
-				to: escrow.address,
+			await transaction;
+
+			// Get the total purchase price and the escrow amount for the home
+			const purchasePrice = await escrowContract.methods
+				.purchasePrice(home.id)
+				.call();
+			console.log("purchasePrice: ", purchasePrice);
+			const escrowAmount = await escrowContract.methods
+				.escrowAmount(home.id)
+				.call();
+			console.log("escrowAmount: ", escrowAmount);
+			const lendAmount = purchasePrice - escrowAmount;
+			console.log("lendAmount: ", lendAmount);
+
+			// Estimate gas for sending funds
+			const gasEstimateSendFunds = await provider.eth.estimateGas({
+				to: escrowContract.options.address,
+				from: account,
 				value: lendAmount.toString(),
 			});
+			console.log("gasEstimateSendFunds: ", gasEstimateSendFunds);
 
-			await signer.sendTransaction({
-				to: escrow.address,
+			// Send the loan funds
+			await provider.eth.sendTransaction({
+				from: account,
+				to: escrowContract.options.address,
 				value: lendAmount.toString(),
-				gasLimit: gasEstimateSendFunds,
+				gas: gasEstimateSendFunds,
 			});
 
 			toast.success("Successfully lent funds!");
@@ -163,21 +247,33 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 
 	const sellHandler = async () => {
 		try {
-			const signer = await provider.getSigner();
+			// Estimate gas for approving the sale as the seller
+			const gasEstimateApprove = await escrowContract.methods
+				.approveSale(home.id)
+				.estimateGas({ from: account });
+			console.log("gasEstimateApprove: ", gasEstimateApprove);
 
-			let gasEstimate = await escrow.estimateGas.approveSale(home.id);
+			// Approve the sale as the seller
+			let transaction = await escrowContract.methods
+				.approveSale(home.id)
+				.send({ from: account, gas: gasEstimateApprove });
+			console.log("transaction: ", transaction);
 
-			let transaction = await escrow
-				.connect(signer)
-				.approveSale(home.id, { gasLimit: gasEstimate });
-			await transaction.wait();
+			await transaction;
 
-			gasEstimate = await escrow.estimateGas.finalizeSale(home.id);
+			// Estimate gas for finalizing the sale
+			const gasEstimateFinalize = await escrowContract.methods
+				.finalizeSale(home.id)
+				.estimateGas({ from: account });
+			console.log("gasEstimateFinalize: ", gasEstimateFinalize);
 
-			transaction = await escrow
-				.connect(signer)
-				.finalizeSale(home.id, { gasLimit: gasEstimate });
-			await transaction.wait();
+			// Finalize the sale
+			transaction = await escrowContract.methods
+				.finalizeSale(home.id)
+				.send({ from: account, gas: gasEstimateFinalize });
+			console.log("transaction: ", transaction);
+
+			await transaction;
 
 			toast.success("Successfully sold the property!");
 			setHasSold(true);
@@ -190,7 +286,7 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 	useEffect(() => {
 		fetchDetails();
 		fetchOwner();
-	}, [hasSold]);
+	}, [hasSold, home]);
 
 	return (
 		<div className="home">
@@ -216,7 +312,10 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 						</div>
 					) : (
 						<div>
-							{account === inspector ? (
+							{account &&
+							inspector &&
+							account.toLowerCase() ===
+								inspector.toLowerCase() ? (
 								<button
 									className="home__buy"
 									onClick={inspectHandler}
@@ -224,7 +323,9 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 								>
 									Approve Inspection
 								</button>
-							) : account === lender ? (
+							) : account &&
+							  lender &&
+							  account.toLowerCase() === lender.toLowerCase() ? (
 								<button
 									className="home__buy"
 									onClick={lendHandler}
@@ -232,7 +333,9 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 								>
 									Approve & Lend
 								</button>
-							) : account === seller ? (
+							) : account &&
+							  seller &&
+							  account.toLowerCase() === seller.toLowerCase() ? (
 								<button
 									className="home__buy"
 									onClick={sellHandler}
@@ -240,7 +343,9 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 								>
 									Approve & Sell
 								</button>
-							) : (
+							) : account &&
+							  buyer &&
+							  account.toLowerCase() === buyer.toLowerCase() ? (
 								<button
 									className="home__buy"
 									onClick={buyHandler}
@@ -248,6 +353,10 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 								>
 									Buy
 								</button>
+							) : (
+								<div>
+									<p>Not authorized for any action.</p>
+								</div>
 							)}
 
 							<button className="home__contact">
@@ -266,14 +375,18 @@ const Home = ({ home, provider, account, escrow, togglePop }) => {
 
 					<h2>Facts and features</h2>
 
-					<ul>
-						{home.attributes.map((attribute, index) => (
-							<li key={index}>
-								<strong>{attribute.trait_type}</strong> :{" "}
-								{attribute.value}
-							</li>
-						))}
-					</ul>
+					{home && home.attributes ? (
+						<ul>
+							{home.attributes.map((attribute, index) => (
+								<li key={index}>
+									<strong>{attribute.trait_type}</strong>:{" "}
+									{attribute.value}
+								</li>
+							))}
+						</ul>
+					) : (
+						<p>Loading home details...</p>
+					)}
 				</div>
 
 				<button onClick={togglePop} className="home__close">

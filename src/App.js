@@ -7,32 +7,20 @@ import { loadBlockchainData } from "./blockchain";
 import Navigation from "./components/Navigation";
 import Search from "./components/Search";
 import Home from "./components/Home";
+import { connectWallet, loadDataToBlockchain } from "./utils";
 
 function App() {
 	const [account, setAccount] = useState(null);
-	const [provider, setProvider] = useState(null);
+	const [web3Provider, setWeb3Provider] = useState(null);
 	const [escrow, setEscrow] = useState(null);
 	const [homes, setHomes] = useState([]);
 	const [home, setHome] = useState(null);
 	const [toggle, setToggle] = useState(false);
-
-	// Load blockchain data
-	const initializeBlockchainData = async () => {
-		try {
-			await loadBlockchainData(
-				setHomes,
-				setEscrow,
-				setAccount,
-				setProvider
-			);
-			toast.success("Blockchain data loaded successfully!");
-		} catch (error) {
-			toast.error("Failed to load blockchain data. Please try again.");
-		}
-	};
+	const [error, setError] = useState(null);
 
 	useEffect(() => {
-		initializeBlockchainData();
+		connectWallet({ setError, setWeb3Provider, setAccount });
+		loadDataToBlockchain({ setError, setHomes, setEscrow });
 	}, []);
 
 	const togglePop = (home) => {
@@ -79,8 +67,8 @@ function App() {
 			{toggle && (
 				<Home
 					home={home}
-					escrow={escrow}
-					provider={provider}
+					escrowContract={escrow}
+					provider={web3Provider}
 					togglePop={togglePop}
 					account={account}
 				/>
